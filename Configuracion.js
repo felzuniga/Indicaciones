@@ -53,6 +53,44 @@ const CONFIG_PLANILLAS_SEGUIMIENTO = {
     id: "1aPwuenEQbipzZsCjwpqDj0vfZKprAotym4qv3EX0I8s", 
     nombreHoja: "Hoja 1",
     filtro: ["3.-PROCEDIMIENTO"]
+  },
+
+  // --- NUEVAS ESPECIALIDADES ---
+
+  "DIABETES": { 
+    id: "15tPSFjuMCAyScZ1-_oDkDTTnxfDY_7lmopaswu7-hqU",
+    nombreHoja: "Hoja 1",
+    filtro: ["2.-CONSULTA REPETIDA O CONTROL"]
+  },
+  "ENDOSCOPIA": { 
+    id: "1zQET_i_f2q7gFzQoDaBKv9UcC9EaXNmB-ViCj8gU2G0",
+    nombreHoja: "Hoja 1",
+    filtro: ["3.-PROCEDIMIENTO"]
+  },
+  "UROLOGIA": { // Recibe tanto Tipo 2 como Tipo 3
+    id: "1HUNk-ne3S21pG-ouQgzRiibq07Lqo5b-ZDg-heWX5sU",
+    nombreHoja: "Hoja 1",
+    filtro: ["2.-CONSULTA REPETIDA O CONTROL", "3.-PROCEDIMIENTO"]
+  },
+  "TRAUMATOLOGIA": { 
+    id: "1qnmeb_2wzS6zN-if5zTDJAGFr9aSagkRVCN9oy9JHgs",
+    nombreHoja: "Hoja 1",
+    filtro: ["2.-CONSULTA REPETIDA O CONTROL"]
+  },
+  "REUMATOLOGIA": { // Recibe tanto Tipo 2 como Tipo 3
+    id: "1AVNCV1PPeF0WjY7l_33WJYMSbLIb46E-sccqF_OIN-M",
+    nombreHoja: "Hoja 1",
+    filtro: ["2.-CONSULTA REPETIDA O CONTROL", "3.-PROCEDIMIENTO"]
+  },
+  "OTORRINO": { // Recibe tanto Tipo 2 como Tipo 3
+    id: "1p-UgTznCNkZeE15U978wDY6suKotWLzYCoKWa1b6esg",
+    nombreHoja: "Hoja 1",
+    filtro: ["2.-CONSULTA REPETIDA O CONTROL", "3.-PROCEDIMIENTO"]
+  },
+  "GASTROENTEROLOGIA": { 
+    id: "1HBwbt3isoopiV9Ln7ty_EeNE791HY_a_qrhscZ2hW9I",
+    nombreHoja: "Hoja 1",
+    filtro: ["2.-CONSULTA REPETIDA O CONTROL"]
   }
 };
 
@@ -116,6 +154,29 @@ const FILTROS_IMAGENOLOGIA = {
   
   // Códigos específicos a excluir (CONFIRMAR SI ES NECESARIO AHORA QUE TENEMOS LOS CÓDIGOS DEL ARCHIVO "Arbol Exámenes Ley HCUCH")
   CODIGOS_EXCLUIR_IMAGENOLOGIA: []
+};
+
+// --- NUEVAS ESPECIALIDADES ---
+
+const FILTROS_ESPECIALIDADES = {
+  DIABETES_CONSULTA: ["07-013 DIABETOLOGIA", "07-013", "DIABETOLOGIA"],
+  TRAUMATOLOGIA_CONSULTA: ["07-053 TRAUMATOLOGIA Y ORTOPEDIA", "07-053", "TRAUMATOLOGIA Y ORTOPEDIA"],
+  GASTRO_CONSULTA: ["07-018 GASTROENTEROLOGIA ADULTO", "07-018", "GASTROENTEROLOGIA ADULTO"],
+  UROLOGIA_CONSULTA: ["07-054 UROLOGIA", "07-054", "UROLOGIA"],
+  REUMATOLOGIA_CONSULTA: ["07-051 REUMATOLOGIA", "07-051", "REUMATOLOGIA"],
+  OTORRINO_CONSULTA: ["07-046 OTORRINOLARINGOLOGIA", "07-046", "OTORRINOLARINGOLOGIA"],
+ 
+  UROLOGIA_PROC: ["(URO/NEFRO)"],
+  ENDOSCOPIA_PROC: [
+    // 1. Códigos exactos (Prioridad)
+    "1801037", "1801002", "1801001", "1801026", "1801025", 
+    "1801024", "1801023", "1801031", "1801004", "1801007", 
+    "1801006", "1801045", "1801025", "1801029", "1801003", 
+    "1801033", "1707056", "1801019", "1801028", "1801018", 
+    "1801036", "1801018"
+  ], 
+  //REUMATOLOGIA_PROC: [],  
+  //OTORRINO_PROC: []
 };
 
 /**
