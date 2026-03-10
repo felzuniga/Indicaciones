@@ -1,326 +1,55 @@
 // =================================================================================
-// LÓGICA DE CONSOLIDACIÓN DE DATOS
+// ACCIONES PRINCIPALES
 // =================================================================================
 
 /**
- * ACCIÓN 1: Ejecutar solo UNA VEZ para la carga inicial con el sistema de HASH.
+ * Se ejecuta automáticamente CADA VEZ QUE SE ABRE EL "CONSOLIDADO INDICACIONES".
+ * Crea el menú de control centralizado.
  */
-function Paso1_CargaInicialCompleta_CON_HASH() {
-  Logger.log("--- [PASO 1] INICIANDO CARGA INICIAL COMPLETA ---");
-  ejecutarCargaCompletaConHash("Cajas", ID_CARPETA_MADRE_CAJAS, ID_CONSOLIDADO_CAJAS, NOMBRE_HOJA_CAJAS);
-  ejecutarCargaCompletaConHash("TI", ID_CARPETA_MADRE_TI, ID_CONSOLIDADO_TI, NOMBRE_HOJA_TI);
-  actualizarConsolidadoFinal();
-  Logger.log("CARGA INICIAL CON HASH FINALIZADA");
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Crea un solo menú con un solo botón que lo hace todo
+  ui.createMenu('⚙️ Sincronización')
+    .addItem('Sincronizar Todo (Seguimiento e Historial)', 'iniciarSincronizacionManual')
+    .addToUi();
 }
 
 /**
- * ACCIÓN 2: Configurar en un activador para la actualización diaria (nuevos + modificados).
+ * Inicia el proceso COMPLETO de sincronización manual:
+ * 1. Archiva todos los pendientes en las hojas de seguimiento.
+ * 2. Pre-chequea los cambios (incluyendo los nuevos historiales).
+ * 3. Pide confirmación al usuario.
+ * 4. Sincroniza todo de vuelta al Consolidado.
  */
-function Paso2_ActualizacionPorContenido_Diaria() {
-  Logger.log("--- [PASO 2] INICIANDO ACTUALIZACIÓN DIARIA POR CONTENIDO ---");
-  ejecutarActualizacionPorContenido("Cajas", ID_CARPETA_MADRE_CAJAS, ID_CONSOLIDADO_CAJAS, NOMBRE_HOJA_CAJAS);
-  ejecutarActualizacionPorContenido("TI", ID_CARPETA_MADRE_TI, ID_CONSOLIDADO_TI, NOMBRE_HOJA_TI);
-  actualizarConsolidadoFinal();
-  Logger.log("ACTUALIZACIÓN DIARIA POR CONTENIDO FINALIZADA");
-}
+function iniciarSincronizacionManual() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // --- PASO 1: EJECUTAR EL ARCHIVADO PRIMERO ---
+  Logger.log("Ejecutando archivado de pendientes previo a la sincronización...");
+  ui.alert('Paso 1 de 3: Archivando seguimientos pendientes en las planillas de seguimiento... Por favor, espera.');
+  archivarPendientesDiarios(); // Llama a la función
 
-/**
- * Realiza la carga completa de todos los archivos de una carpeta madre a un consolidado intermedio, generando hashes.
- */
-function ejecutarCargaCompletaConHash(tipo, idCarpeta, idConsolidado, nombreHoja) {
-  const hojaDestino = SpreadsheetApp.openById(idConsolidado).getSheetByName(nombreHoja);
-  if (!hojaDestino) { Logger.log(`Error: No se encontró la hoja ${nombreHoja}`); return; }
-  asegurarEncabezados(hojaDestino, ENCABEZADOS_INTERMEDIOS);
-  if (hojaDestino.getLastRow() > 1) {
-    hojaDestino.getRange(2, 1, hojaDestino.getMaxRows() - 1, hojaDestino.getLastColumn()).clearContent();
-  }
-  const todasLasFilas = [];
-  const carpetaMadre = DriveApp.getFolderById(idCarpeta);
-  const subcarpetas = carpetaMadre.getFolders();
-  while (subcarpetas.hasNext()) {
-    const subcarpeta = subcarpetas.next();
-    const archivos = subcarpeta.getFilesByType(MimeType.GOOGLE_SHEETS);
-    while (archivos.hasNext()) {
-      const archivo = archivos.next();
-      const datosExtraidos = obtenerDatosConHash(archivo.getId());
-      if (datosExtraidos) {
-          todasLasFilas.push(...datosExtraidos);
-      }     
+  // --- PASO 2: EJECUTAR EL PRE-CHEQUEO ---
+  Logger.log("Ejecutando pre-chequeo de sincronización...");
+  ui.alert('Paso 2 de 3: Contando todos los cambios para sincronizar...');
+  const cambiosPendientes = prepararSincronizacionDeRetorno();
+
+  // --- PASO 3: CONFIRMAR Y SINCRONIZAR ---
+  if (cambiosPendientes > 0) {
+    const mensaje = `Se encontraron ${cambiosPendientes} registros con actualizaciones (incluyendo el historial recién archivado).\n\n¿Deseas sincronizar estos cambios ahora en el "Consolidado Indicaciones"?`;
+    const respuesta = ui.alert('Paso 3 de 3: Confirmación de Sincronización', mensaje, ui.ButtonSet.YES_NO);
+
+    if (respuesta == ui.Button.YES) {
+      ui.alert('Iniciando sincronización final... Por favor, espera.');
+      Paso4_SincronizarRetornoDeDatos();
+      ui.alert('¡Proceso completado!', 'Todos los datos han sido archivados y sincronizados exitosamente.', ui.ButtonSet.OK);
+    } else {
+      ui.alert('Sincronización cancelada.', 'Se han archivado los seguimientos, pero no se han traído al consolidado.', ui.ButtonSet.OK);
     }
-  }
-  if (todasLasFilas.length > 0) {
-    hojaDestino.getRange(2, 1, todasLasFilas.length, todasLasFilas[0].length).setValues(todasLasFilas);
-    Logger.log(`Carga completa para "${nombreHoja}": Se cargaron ${todasLasFilas.length} filas.`);
-  }
-}
-
-/**
- * Actualiza un consolidado intermedio solo con filas nuevas o modificadas, usando hashes.
- */
-function ejecutarActualizacionPorContenido(tipo, idCarpeta, idConsolidado, nombreHoja) {
-  Logger.log(`--- Iniciando actualización para: ${tipo} ---`);
-  const hojaDestino = SpreadsheetApp.openById(idConsolidado).getSheetByName(nombreHoja);
-  if (!hojaDestino) return;
-  asegurarEncabezados(hojaDestino, ENCABEZADOS_INTERMEDIOS);
-
-  const encabezados = hojaDestino.getRange(1, 1, 1, hojaDestino.getLastColumn()).getValues()[0];
-  const indiceId = encabezados.indexOf(HEADER_ID_UNICO);
-  const indiceHash = encabezados.indexOf(HEADER_HASH);
-  if (indiceId === -1 || indiceHash === -1) {
-    Logger.log(`ERROR: Faltan columnas auxiliares en ${nombreHoja}.`);
-    return;
-  }
-
-  const mapaExistente = new Map();
-  if (hojaDestino.getLastRow() > 1) {
-    hojaDestino.getRange(2, 1, hojaDestino.getLastRow() - 1, hojaDestino.getLastColumn()).getValues().forEach(fila => {
-      if (fila[indiceId]) mapaExistente.set(fila[indiceId], fila[indiceHash]);
-    });
-  }
-  Logger.log(`Total de filas actuales en "${nombreHoja}": ${mapaExistente.size}`);
-
-  const filasNuevas = [], filasModificadas = [], idsParaMantener = new Set();
-  const carpetaMadre = DriveApp.getFolderById(idCarpeta);
-  const subcarpetas = carpetaMadre.getFolders();
-  while (subcarpetas.hasNext()) {
-    const subcarpeta = subcarpetas.next();
-    const archivos = subcarpeta.getFilesByType(MimeType.GOOGLE_SHEETS);
-    while (archivos.hasNext()) {
-      const archivo = archivos.next();
-      const datosOrigen = obtenerDatosConHash(archivo.getId());
-      if (datosOrigen) {
-        datosOrigen.forEach(filaConMetadatos => {
-          const idActual = filaConMetadatos[indiceId];
-          const hashActual = filaConMetadatos[indiceHash];
-          if (!mapaExistente.has(idActual)) {
-            filasNuevas.push(filaConMetadatos);
-            Logger.log(`  [+] Fila NUEVA encontrada en el archivo: "${archivo.getName()}"`);
-          } else if (mapaExistente.get(idActual) !== hashActual) {
-            filasModificadas.push(filaConMetadatos);
-            Logger.log(`  [*] Fila MODIFICADA encontrada en el archivo: "${archivo.getName()}"`);
-          } else {
-            idsParaMantener.add(idActual);
-          }
-        });
-      }
-    }
-  }
-
-  if (filasNuevas.length === 0 && filasModificadas.length === 0) {
-    Logger.log(`No se encontraron filas nuevas o modificadas para "${tipo}".`);
-    return;
-  }
-
-  Logger.log("--- RESUMEN DE CAMBIOS ---");
-  Logger.log(`Total de Filas Nuevas a agregar: ${filasNuevas.length}`);
-  Logger.log(`Total de Filas Modificadas a actualizar: ${filasModificadas.length}`);
-
-  // Mantener filas antiguas sin cambios
-  const datosAntiguosSinCambios = [];
-  if (hojaDestino.getLastRow() > 1) {
-    hojaDestino.getDataRange().getValues().slice(1).forEach(fila => {
-      if (idsParaMantener.has(fila[indiceId])) datosAntiguosSinCambios.push(fila);
-    });
-  }
-
-  if (hojaDestino.getMaxRows() > 1) {
-    hojaDestino.getRange(2, 1, hojaDestino.getMaxRows() - 1, hojaDestino.getLastColumn()).clearContent();
-  }
-
-  const datosFinales = [...datosAntiguosSinCambios, ...filasNuevas, ...filasModificadas];
-  if (datosFinales.length > 0) {
-    hojaDestino.getRange(2, 1, datosFinales.length, datosFinales[0].length).setValues(datosFinales);
-  }
-  Logger.log(`Actualización para "${nombreHoja}" completada. Total final de filas: ${datosFinales.length}.`);
-}
-
-/**
- * Extrae los datos de una hoja "NUEVA LE" y les agrega ID único y hash de contenido.
- */
-function obtenerDatosConHash(archivoId) {
-  try {
-    const spreadsheet = SpreadsheetApp.openById(archivoId);
-    const spreadsheetName = spreadsheet.getName();
-    const hoja = spreadsheet.getSheetByName("NUEVA LE");
-    if (!hoja) return null;
-
-    const ultimaFilaReal = encontrarUltimaFilaConDatosReales(hoja);
-    if (ultimaFilaReal < 2) return null;
-
-    const datos = hoja.getRange(2, 1, ultimaFilaReal - 1, hoja.getLastColumn()).getValues();
-    const datosTexto = hoja.getRange(2, 1, ultimaFilaReal - 1, hoja.getLastColumn()).getDisplayValues();
-
-    const columnasSeleccionadas = [1, 4, 5, 6, 10, 11, 13, 14, 15, 16, 28, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];
-    
-    const indiceId = ENCABEZADOS_INTERMEDIOS.indexOf(HEADER_ID_UNICO);
-    const indiceHash = ENCABEZADOS_INTERMEDIOS.indexOf(HEADER_HASH);
-
-    // ✅ SEPARAMOS: índices que son FECHA, índices que son TEXTO PURO (código/hora)
-    const INDICES_COMO_FECHA = [4, 13, 14];   // Fecha Edición, Fecha Entrada, Fecha Citación
-    const INDICES_COMO_TEXTO = [10, 15];       // Código Prestación, Hora Citación
-
-    const ZONA_HORARIA = "America/Santiago";
-
-    return datos.map((fila, index) => {
-      const numFilaOriginal = index + 2;
-      const idUnico = `${archivoId}|${numFilaOriginal}`;
-
-      const filaProcesada = columnasSeleccionadas.map((columnaOrigen, idxDestino) => {
-
-        // 📅 FECHAS: formatear desde el valor real (número serial)
-        if (INDICES_COMO_FECHA.includes(idxDestino)) {
-          const valorFecha = fila[columnaOrigen];
-          if (valorFecha instanceof Date && !isNaN(valorFecha)) {
-            return Utilities.formatDate(valorFecha, ZONA_HORARIA, "dd/MM/yyyy");
-          }
-          return ""; // Si no hay fecha, celda vacía limpia
-        }
-
-        // 🔤 TEXTO PURO: código de prestación y hora
-        if (INDICES_COMO_TEXTO.includes(idxDestino)) {
-          return datosTexto[index][columnaOrigen] || "";
-        }
-
-        // 🔢 Todo lo demás: valor real
-        return fila[columnaOrigen] !== undefined ? fila[columnaOrigen] : "";
-      });
-
-      // Blindaje del Código
-      let codigo = filaProcesada[10];
-      if (codigo && !String(codigo).startsWith("'")) {
-        filaProcesada[10] = "'" + codigo;
-      }
-
-      const contenidoParaHash = filaProcesada.join('|');
-      const hashBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, contenidoParaHash, Utilities.Charset.UTF_8);
-      const hash = hashBytes.map(b => (b + 256).toString(16).slice(-2)).join('');
-
-      const filaConDatos = [spreadsheetName, ...filaProcesada];
-      filaConDatos[indiceId] = idUnico;
-      filaConDatos[indiceHash] = hash;
-      return filaConDatos;
-    }).filter(fila => fila);
-
-  } catch (e) {
-    Logger.log(`Error en obtenerDatosConHash para archivo ${archivoId}: ${e.message}`);
-    return null;
-  }
-}
-
-/**
- * Sincroniza los datos de los consolidados intermedios con el consolidado final, preservando columnas de seguimiento.
- */
-function actualizarConsolidadoFinal() {
-  Logger.log("--- Iniciando sincronización inteligente del Consolidado Indicaciones ---");
-  try {
-    const hojaFinal = SpreadsheetApp.openById(ID_CONSOLIDADO_FINAL).getSheetByName(NOMBRE_HOJA_FINAL);
-    const hojaCajas = SpreadsheetApp.openById(ID_CONSOLIDADO_CAJAS).getSheetByName(NOMBRE_HOJA_CAJAS);
-    const hojaTI = SpreadsheetApp.openById(ID_CONSOLIDADO_TI).getSheetByName(NOMBRE_HOJA_TI);
-    
-    if (!hojaFinal || !hojaCajas || !hojaTI) {
-      Logger.log("Error: No se encontró una de las hojas de consolidado.");
-      return;
-    }
-    asegurarEncabezados(hojaFinal, ENCABEZADOS_FINALES);
-    const numColumnasOriginales = ENCABEZADOS_INTERMEDIOS.length;
-
-    // Cargar datos de fuentes intermedias
-    const mapaFuentes = new Map();
-    const encabezadosIntermedios = hojaCajas.getRange(1, 1, 1, hojaCajas.getLastColumn()).getValues()[0];
-    const indiceIdIntermedio = encabezadosIntermedios.indexOf(HEADER_ID_UNICO);
-    const indiceHashIntermedio = encabezadosIntermedios.indexOf(HEADER_HASH);
-    const indiceCodigoPrestacion = encabezadosIntermedios.indexOf('CODIGO DE PRESTACION'); // Obtenemos el índice
-
-    // Función auxiliar interna para procesar hojas (evita repetir código)
-    const procesarHoja = (hoja) => {
-      if (hoja.getLastRow() > 1) {
-        hoja.getRange(2, 1, hoja.getLastRow() - 1, hoja.getLastColumn()).getValues().forEach(fila => {
-          if (fila[indiceIdIntermedio]) {
-            if (indiceCodigoPrestacion !== -1 && fila[indiceCodigoPrestacion]) {
-              let cod = String(fila[indiceCodigoPrestacion]);
-               if (!cod.startsWith("'")) fila[indiceCodigoPrestacion] = "'" + cod;
-            }
-            mapaFuentes.set(fila[indiceIdIntermedio], { data: fila, hash: fila[indiceHashIntermedio] });
-          }
-        });
-      }
-    };
-
-    // 1. Procesar Cajas
-    procesarHoja(hojaCajas);
-    // 2. Procesar TI
-    procesarHoja(hojaTI);
-
-    Logger.log(`Total de registros en fuentes intermedias: ${mapaFuentes.size}`);
-
-
-    // Cargar final
-    const mapaFinal = new Map();
-    if (hojaFinal.getLastRow() > 1) {
-      const datosFinales = hojaFinal.getDataRange().getValues();
-      const encabezadosFinales = datosFinales.shift();
-      const indiceIdFinal = encabezadosFinales.indexOf(HEADER_ID_UNICO);
-      const indiceHashFinal = encabezadosFinales.indexOf(HEADER_HASH);
-      datosFinales.forEach((fila, index) => {
-        if (fila[indiceIdFinal]) {
-          mapaFinal.set(fila[indiceIdFinal], { fila: fila, hash: fila[indiceHashFinal] });
-        }
-      });
-    }
-
-    Logger.log(`Total de registros actuales en consolidado final: ${mapaFinal.size}`);
-
-    // Comparar y decidir qué hacer
-    const filasNuevas = [], filasParaModificar = [];
-    mapaFuentes.forEach((infoFuente, id) => {
-      if (!mapaFinal.has(id)) {
-        filasNuevas.push(infoFuente.data);
-      } else {
-        const infoFinal = mapaFinal.get(id);
-        if (infoFuente.hash !== infoFinal.hash) {
-          filasParaModificar.push({ data: infoFuente.data, filaExistente: infoFinal.fila });
-        }
-      }
-    });
-
-    // Escritura
-    if (filasParaModificar.length > 0) {
-      Logger.log(`Actualizando ${filasParaModificar.length} filas modificadas...`);
-      const dataRange = hojaFinal.getDataRange();
-      const values = dataRange.getValues();
-      const headers = values.shift();
-      const idIdx = headers.indexOf(HEADER_ID_UNICO);
-
-      filasParaModificar.forEach(item => {
-        for (let i = 0; i < values.length; i++) {
-          if(values[i][idIdx] === item.data[headers.indexOf(HEADER_ID_UNICO)]) {
-             for(let j=0; j<numColumnasOriginales; j++) {
-               values[i][j] = item.data[j];
-             }
-             break;
-          }
-        }        
-      });
-      hojaFinal.getRange(2, 1, values.length, values[0].length).setValues(values);
-      Logger.log(`Se actualizaron ${filasParaModificar.length} filas.`);
-    }
-
-    if (filasNuevas.length > 0) {
-      Logger.log(`Agregando ${filasNuevas.length} filas nuevas...`);
-      const anchoFinal = ENCABEZADOS_FINALES.length;
-      const nuevasFilasFormateadas = filasNuevas.map(fila => {
-        const filaCompleta = new Array(anchoFinal).fill("");
-        for (let i = 0; i < numColumnasOriginales; i++) {
-          filaCompleta[i] = i < fila.length ? fila[i] : "";
-        }
-        return filaCompleta;
-      });
-      hojaFinal.getRange(hojaFinal.getLastRow() + 1, 1, nuevasFilasFormateadas.length, anchoFinal).setValues(nuevasFilasFormateadas);
-      Logger.log(`Se agregaron ${filasNuevas.length} filas nuevas.`);
-    }
-    Logger.log(`Sincronización Finalizada. Nuevas: ${filasNuevas.length}, Modificadas: ${filasParaModificar.length}`);
-  } catch (e) {
-    Logger.log(`ERROR al sincronizar el Consolidado Final: ${e.message}`);
-    Logger.log(`Stack trace: ${e.stack}`);
+  } else if (cambiosPendientes === 0) {
+    ui.alert('Todo está al día. No se encontraron cambios nuevos para sincronizar.');
+  } else {
+    ui.alert('Ocurrió un error al revisar los cambios. Contacte al administrador del sistema.');
   }
 }
